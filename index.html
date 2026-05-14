@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Business Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #060b14;
+            --bg-card: #0c1322;
+            --bg-elevated: #111a2e;
+            --border: #1a2744;
+            --border-glow: #1e3a5f;
+            --fg: #e4eaf5;
+            --muted: #5a6f94;
+            --accent: #00e5a0;
+            --accent-dim: rgba(0,229,160,0.12);
+            --reason: #f0b429;
+            --plan: #3b9eff;
+            --execute: #00e5a0;
+            --error: #ff4d6a;
+            --warn: #f59e0b;
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* === Atmosphere === */
+        .atmos {
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+        }
+        .atmos::before {
+            content: ''; position: absolute;
+            top: -30%; left: 20%; width: 50%; height: 60%;
+            background: radial-gradient(ellipse, rgba(0,229,160,0.04) 0%, transparent 70%);
+            animation: driftA 22s ease-in-out infinite;
+        }
+        .atmos::after {
+            content: ''; position: absolute;
+            bottom: -20%; right: 10%; width: 45%; height: 50%;
+            background: radial-gradient(ellipse, rgba(59,158,255,0.04) 0%, transparent 70%);
+            animation: driftA 28s ease-in-out infinite reverse;
+        }
+        @keyframes driftA {
+            0%,100% { transform: translate(0,0) scale(1); }
+            33% { transform: translate(40px,-30px) scale(1.08); }
+            66% { transform: translate(-25px,35px) scale(0.94); }
+        }
+
+        /* Grid overlay */
+        .grid-bg {
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            background-image:
+                linear-gradient(rgba(26,39,68,0.25) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(26,39,68,0.25) 1px, transparent 1px);
+            background-size: 50px 50px;
+            mask-image: radial-gradient(ellipse 70% 50% at 50% 30%, black 10%, transparent 80%);
+        }
+
+        /* === Scrollbar === */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* === Cards === */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            border-color: var(--border-glow);
+        }
+
+        /* === Reasoning Chain Node === */
+        .reason-node {
+            position: relative;
+            padding: 16px 18px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            animation: nodeSlideIn 0.4s ease-out both;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        .reason-node:hover {
+            border-color: var(--reason);
+            background: rgba(240,180,41,0.04);
+        }
+        .reason-node.active-reason {
+            border-color: var(--reason);
+            box-shadow: 0 0 20px rgba(240,180,41,0.08);
+        }
+        @keyframes nodeSlideIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Connector line between reason nodes */
+        .reason-connector {
+            width: 2px;
+            height: 28px;
+            margin: 0 auto;
+            background: linear-gradient(to bottom, var(--reason), transparent);
+            opacity: 0.3;
+        }
+
+        /* === Plan Step === */
+        .plan-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            animation: nodeSlideIn 0.4s ease-out both;
+            transition: all 0.3s;
+        }
+        .plan-step.step-active {
+            border-color: var(--plan);
+            box-shadow: 0 0 16px rgba(59,158,255,0.1);
+        }
+        .plan-step.step-done {
+            border-color: var(--execute);
+            opacity: 0.7;
+        }
+        .plan-step.step-failed {
+            border-color: var(--error);
+        }
+
+        .step-number {
+            width: 32px; height: 32px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 13px; flex-shrink: 0;
+            background: rgba(59,158,255,0.12); color: var(--plan);
+            transition: all 0.3s;
+        }
+        .step-done .step-number { background: rgba(0,229,160,0.12); color: var(--execute); }
+        .step-failed .step-number { background: rgba(255,77,106,0.12); color: var(--error); }
+        .step-active .step-number { background: rgba(59,158,255,0.2); color: var(--plan); animation: pulseBlue 1.5s infinite; }
+
+        @keyframes pulseBlue {
+            0%,100% { box-shadow: 0 0 0 0 rgba(59,158,255,0.3); }
+            50% { box-shadow: 0 0 12px 3px rgba(59,158,255,0.15); }
+        }
+
+        /* === Log Entry === */
+        .log-line {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            padding: 4px 12px;
+            border-left: 3px solid var(--border);
+            animation: logIn 0.25s ease-out;
+            transition: background 0.2s;
+        }
+        .log-line:hover { background: rgba(255,255,255,0.015); }
+        .log-line.log-reason { border-left-color: var(--reason); }
+        .log-line.log-plan { border-left-color: var(--plan); }
+        .log-line.log-exec { border-left-color: var(--execute); }
+        .log-line.log-error { border-left-color: var(--error); }
+        .log-line.log-warn { border-left-color: var(--warn); }
+        .log-line.log-info { border-left-color: var(--muted); }
+
+        @keyframes logIn {
+            from { opacity:0; transform: translateX(-8px); }
+            to { opacity:1; transform: translateX(0); }
+        }
+
+        /* === Input === */
+        .field {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 11px 14px;
+            color: var(--fg);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .field:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-dim);
+        }
+        .field::placeholder { color: var(--muted); }
+
+        /* === Buttons === */
+        .btn-go {
+            background: var(--accent);
+            color: var(--bg);
+            font-weight: 700;
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 15px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-go:hover {
+            background: #00cc8e;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px rgba(0,229,160,0.25);
+        }
+        .btn-go:active { transform: translateY(0); }
+        .btn-go:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--fg);
+            font-weight: 500;
+            padding: 10px 18px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-outline:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+        }
+
+        /* === Section Label === */
+        .sec-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--muted);
+            margin-bottom: 14px;
+        }
+        .sec-label::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* === Toast === */
+        .toast-box {
+            position: fixed;
+            top: 16px; right: 16px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast-item {
+            padding: 12px 20px;
+            border-radius: 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            font-size: 13px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            animation: tIn 0.3s ease-out;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .toast-item.out { animation: tOut 0.3s ease-in forwards; }
+        @keyframes tIn { from { opacity:0; transform:translateX(30px); } to { opacity:1; transform:translateX(0); } }
+        @keyframes tOut { from { opacity:1; transform:translateX(0); } to { opacity:0; transform:translateX(30px); } }
+
+        /* === Spinner === */
+        .spinner {
+            width: 16px; height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* === Typing Dots === */
+        .typing-dots span {
+            display: inline-block;
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: var(--reason);
+            margin: 0 2px;
+            animation: bounce 1.2s infinite;
+        }
+        .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes bounce {
+            0%,60%,100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+
+        /* === Progress Ring === */
+        .ring-track { stroke: var(--border); }
+        .ring-fill {
+            stroke: var(--accent);
+            transition: stroke-dashoffset 0.8s ease;
+            filter: drop-shadow(0 0 6px rgba(0,229,160,0.4));
+        }
+
+        /* === Responsive === */
+        @media (max-width:1100px) {
+            .main-layout { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width:640px) {
+            .agent-stats { grid-template-columns: repeat(2,1fr) !important; }
+        }
+
+        /* === Reduced motion === */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="atmos"></div>
+    <div class="grid-bg"></div>
+    <div class="toast-box" id="toastBox"></div>
+
+    <div style="position:relative; z-index:1;">
+
+        <!-- ===== HEADER ===== -->
+        <header style="border-bottom:1px solid var(--border); background:rgba(6,11,20,0.88); backdrop-filter:blur(14px); position:sticky; top:0; z-index:50;">
+            <div style="max-width:1400px; margin:0 auto; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:40px; height:40px; border-radius:12px; background:var(--accent-dim); display:flex; align-items:center; justify-content:center;">
+                        <i class="fas fa-brain" style="color:var(--accent); font-size:18px;"></i>
+                    </div>
+                    <div>
+                        <h1 style="font-size:20px; font-weight:800; letter-spacing:-0.5px;">Autonomous Business Agent</h1>
+                        <p style="font-size:11px; color:var(--muted);">Multi-step Reasoning &middot; Task Planning &middot; Execution Logs</p>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div id="agentStatus" style="display:flex; align-items:center; gap:6px; padding:5px 12px; border-radius:20px; background:var(--accent-dim); font-size:12px; font-weight:600; color:var(--accent);">
+                        <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);animation:spin 2s linear infinite;"></span>
+                        Ready
+                    </div>
+                    <button class="btn-outline" onclick="resetAgent()" style="padding:7px 12px; font-size:11px;">
+                        <i class="fas fa-rotate-right"></i> Reset
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- ===== STATS BAR ===== -->
+        <section style="max-width:1400px; margin:0 auto; padding:16px 24px 0;">
+            <div class="agent-stats" style="display:grid; grid-template-columns:repeat(5,1fr); gap:10px;" id="statsBar"></div>
+        </section>
+
+        <!-- ===== MAIN LAYOUT ===== -->
+        <main style="max-width:1400px; margin:0 auto; padding:16px 24px 48px;">
+            <div class="main-layout" style="display:grid; grid-template-columns:1fr 400px; gap:16px;">
+
+                <!-- LEFT: Reasoning + Plan -->
+                <div style="display:flex; flex-direction:column; gap:16px;">
+
+                    <!-- GOAL INPUT -->
+                    <section class="card" style="padding:20px;">
+                        <div class="sec-label">
+                            <i class="fas fa-crosshairs" style="color:var(--accent);"></i>
+                            <span>Business Goal</span>
+                        </div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            <input class="field" id="goalInput" placeholder="e.g. Launch a SaaS product for small business invoicing" style="flex:1; min-width:240px;" aria-label="Business goal">
+                            <button class="btn-go" id="runBtn" onclick="runAgent()">
+                                <i class="fas fa-play"></i> Run Agent
+                            </button>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                            <button class="btn-outline" onclick="setGoal('Launch an e-commerce platform for handmade crafts')" style="font-size:11px; padding:6px 12px;">
+                                <i class="fas fa-store" style="color:var(--reason);"></i> E-commerce Platform
+                            </button>
+                            <button class="btn-outline" onclick="setGoal('Build a fintech app for micro-lending in emerging markets')" style="font-size:11px; padding:6px 12px;">
+                                <i class="fas fa-coins" style="color:var(--plan);"></i> Fintech App
+                            </button>
+                            <button class="btn-outline" onclick="setGoal('Create a B2B SaaS for HR management and payroll')" style="font-size:11px; padding:6px 12px;">
+                                <i class="fas fa-users-gear" style="color:var(--execute);"></i> HR SaaS
+                            </button>
+                            <button class="btn-outline" onclick="setGoal('Develop a food delivery marketplace for local restaurants')" style="font-size:11px; padding:6px 12px;">
+                                <i class="fas fa-utensils" style="color:var(--error);"></i> Food Delivery
+                            </button>
+                        </div>
+                    </section>
+
+                    <!-- MULTI-STEP REASONING -->
+                    <section class="card" style="padding:20px;">
+                        <div class="sec-label">
+                            <i class="fas fa-brain" style="color:var(--reason);"></i>
+                            <span>Multi-Step Reasoning</span>
+                        </div>
+                        <div id="reasoningChain" style="max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:0;">
+                            <div style="text-align:center; padding:40px 20px; color:var(--muted); font-size:13px;">
+                                <i class="fas fa-lightbulb" style="font-size:28px; margin-bottom:10px; display:block; opacity:0.25;"></i>
+                                Enter a business goal to start reasoning
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- TASK PLAN -->
+                    <section class="card" style="padding:20px;">
+                        <div class="sec-label">
+                            <i class="fas fa-list-check" style="color:var(--plan);"></i>
+                            <span>Task Plan</span>
+                        </div>
+                        <div id="taskPlan" style="max-height:380px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
+                            <div style="text-align:center; padding:40px 20px; color:var(--muted); font-size:13px;">
+                                <i class="fas fa-clipboard-list" style="font-size:28px; margin-bottom:10px; display:block; opacity:0.25;"></i>
+                                Plan will appear after reasoning completes
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- RIGHT: Execution Logs + Progress -->
+                <div style="display:flex; flex-direction:column; gap:16px;">
+
+                    <!-- PROGRESS RING -->
+                    <section class="card" style="padding:20px; text-align:center;">
+                        <div class="sec-label" style="justify-content:center;">
+                            <i class="fas fa-chart-pie" style="color:var(--accent);"></i>
+                            <span>Execution Progress</span>
+                        </div>
+                        <div style="position:relative; display:inline-block;">
+                            <svg width="140" height="140" viewBox="0 0 140 140">
+                                <circle class="ring-track" cx="70" cy="70" r="58" fill="none" stroke-width="8"/>
+                                <circle class="ring-fill" id="progressRing" cx="70" cy="70" r="58" fill="none" stroke-width="8"
+                                    stroke-linecap="round"
+                                    stroke-dasharray="364.42"
+                                    stroke-dashoffset="364.42"
+                                    transform="rotate(-90 70 70)"/>
+                            </svg>
+                            <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                                <span id="progressPct" style="font-size:32px; font-weight:800; letter-spacing:-2px;">0%</span>
+                                <span style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Complete</span>
+                            </div>
+                        </div>
+                        <div style="display:flex; justify-content:center; gap:20px; margin-top:14px; font-size:12px;">
+                            <div><span style="color:var(--execute);" id="doneCount">0</span> <span style="color:var(--muted);">Done</span></div>
+                            <div><span style="color:var(--plan);" id="activeCount">0</span> <span style="color:var(--muted);">Active</span></div>
+                            <div><span style="color:var(--muted);" id="pendingCount">0</span> <span style="color:var(--muted);">Pending</span></div>
+                        </div>
+                    </section>
+
+                    <!-- EXECUTION LOGS -->
+                    <section class="card" style="padding:20px; flex:1; display:flex; flex-direction:column;">
+                        <div class="sec-label">
+                            <i class="fas fa-terminal" style="color:var(--execute);"></i>
+                            <span>Execution Logs</span>
+                        </div>
+                        <div id="execLogs" style="flex:1; max-height:520px; overflow-y:auto; background:var(--bg); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:2px;">
+                            <div class="log-line log-info">
+                                <span style="color:var(--muted);">[SYS]</span> Autonomous Business Agent initialized. Awaiting goal.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+// ============================================
+// STEP 1: REASONING ENGINE
+// Multi-step reasoning — goal ko analyze karke
+// step-by-step sochta hai, chain-of-thought style
+// ============================================
+
+class ReasoningEngine {
+    constructor() {
+        this.chain = []; // reasoning steps ka record
+    }
+
+    // Goal ko multi-step reasoning se analyze karo
+    async reason(goal) {
+        this.chain = [];
+        const steps = this.generateReasoningSteps(goal);
+
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            this.chain.push(step);
+            renderReasoningNode(step, i);
+            addLog('reason', `[REASON Step ${i+1}] ${step.title}: ${step.thought}`);
+            await delay(600 + Math.random() * 800);
+        }
+
+        return this.chain;
+    }
+
+    // Goal ke basis pe reasoning steps generate karo
+    generateReasoningSteps(goal) {
+        const g = goal.toLowerCase();
+        const steps = [];
+
+        // Step 1: Goal Analysis
+        steps.push({
+            phase: 'analyze',
+            title: 'Goal Decomposition',
+            thought: `Breaking down the goal: "${goal}" — identifying core objective, target market, and key constraints.`,
+            insight: this.getAnalysisInsight(g),
+            confidence: 85 + Math.floor(Math.random() * 12)
+        });
+
+        // Step 2: Market Context
+        steps.push({
+            phase: 'context',
+            title: 'Market Context Evaluation',
+            thought: `Evaluating market conditions, competition intensity, and demand signals for this domain.`,
+            insight: this.getMarketInsight(g),
+            confidence: 72 + Math.floor(Math.random() * 18)
+        });
+
+        // Step 3: Risk Assessment
+        steps.push({
+            phase: 'risk',
+            title: 'Risk Identification',
+            thought: `Identifying potential blockers — regulatory, technical, financial, and market-adoption risks.`,
+            insight: this.getRiskInsight(g),
+            confidence: 65 + Math.floor(Math.random() * 20)
+        });
+
+        // Step 4: Resource Estimation
+        steps.push({
+            phase: 'resource',
+            title: 'Resource Estimation',
+            thought: `Estimating team size, tech stack, timeline, and budget requirements.`,
+            insight: this.getResourceInsight(g),
+            confidence: 70 + Math.floor(Math.random() * 15)
+        });
+
+        // Step 5: Strategic Approach
+        steps.push({
+            phase: 'strategy',
+            title: 'Strategy Formulation',
+            thought: `Formulating go-to-market strategy based on analysis — choosing between MVP-first vs. full-build approach.`,
+            insight: this.getStrategyInsight(g),
+            confidence: 78 + Math.floor(Math.random() * 16)
+        });
+
+        // Step 6: Task Derivation
+        steps.push({
+            phase: 'derive',
+            title: 'Task Derivation',
+            thought: `Deriving concrete, actionable tasks from the strategy. Prioritizing by impact and dependencies.`,
+            insight: 'Generated prioritized task plan with dependency ordering. Critical path identified.',
+            confidence: 88 + Math.floor(Math.random() * 10)
+        });
+
+        return steps;
+    }
+
+    // Har step ke insight generators
+    getAnalysisInsight(g) {
+        if (g.includes('saas') || g.includes('hr')) return 'Core objective: B2B subscription platform. Target: SMBs with 10-200 employees. Key constraint: High compliance requirements.';
+        if (g.includes('e-commerce') || g.includes('marketplace')) return 'Core objective: Multi-vendor marketplace. Target: Niche sellers + buyers. Key constraint: Payment reconciliation complexity.';
+        if (g.includes('fintech') || g.includes('lending')) return 'Core objective: Financial service platform. Target: Underbanked populations. Key constraint: Regulatory licensing needed.';
+        if (g.includes('food') || g.includes('delivery')) return 'Core objective: Hyperlocal delivery network. Target: Local restaurants + consumers. Key constraint: Logistics optimization critical.';
+        return 'Core objective: Digital product/platform. Target: Defined user segment. Key constraint: Time-to-market and differentiation.';
+    }
+
+    getMarketInsight(g) {
+        if (g.includes('saas') || g.includes('hr')) return 'HR SaaS market growing 12% YoY. Mid-market underserved. Competitors: BambooHR, Gusto — gap in affordability for small teams.';
+        if (g.includes('e-commerce') || g.includes('craft')) return 'Handmade crafts market: $40B+ globally. Etsy dominates but sellers seek alternatives due to high fees. Opportunity in lower-commission model.';
+        if (g.includes('fintech') || g.includes('lending')) return 'Micro-lending in emerging markets: High demand, mobile-first users. M-Pesa proved model. Regulatory landscape varies by country.';
+        if (g.includes('food') || g.includes('delivery')) return 'Food delivery: Competitive but localized gaps exist. Commission rates (25-30%) strain restaurants. Lower-fee model is differentiator.';
+        return 'Market shows moderate competition with niche opportunities. First-mover advantage in underserved segment possible.';
+    }
+
+    getRiskInsight(g) {
+        const risks = [];
+        risks.push('Technical: Building scalable infrastructure within timeline — MEDIUM risk');
+        risks.push('Market: User acquisition cost may exceed projections — HIGH risk');
+        if (g.includes('fintech') || g.includes('lending')) risks.push('Regulatory: Compliance licensing delays — HIGH risk');
+        if (g.includes('food') || g.includes('delivery')) risks.push('Operational: Logistics quality control — HIGH risk');
+        risks.push('Financial: Runway management critical for first 12 months — MEDIUM risk');
+        return risks.join(' | ');
+    }
+
+    getResourceInsight(g) {
+        if (g.includes('saas') || g.includes('hr')) return 'Team: 4-6 engineers, 1 PM, 1 designer. Stack: React + Node + PostgreSQL. Timeline: 5-7 months to MVP. Budget: $180K-280K.';
+        if (g.includes('e-commerce') || g.includes('craft')) return 'Team: 3-5 engineers, 1 PM. Stack: Next.js + Stripe + Supabase. Timeline: 4-6 months to MVP. Budget: $120K-200K.';
+        if (g.includes('fintech') || g.includes('lending')) return 'Team: 5-8 engineers, 2 PMs, compliance officer. Stack: React Native + Go + PostgreSQL. Timeline: 8-12 months. Budget: $350K-500K.';
+        if (g.includes('food') || g.includes('delivery')) return 'Team: 4-6 engineers, 1 ops manager. Stack: React Native + Node + Redis. Timeline: 5-8 months. Budget: $200K-350K.';
+        return 'Team: 3-5 engineers, 1 PM. Stack: Modern web stack. Timeline: 4-8 months to MVP. Budget: $150K-300K.';
+    }
+
+    getStrategyInsight(g) {
+        if (g.includes('saas') || g.includes('hr')) return 'Strategy: MVP-first with 3 core modules (employee management, payroll, leave tracking). Freemium model to drive adoption. Land-and-expand pricing.';
+        if (g.includes('e-commerce') || g.includes('craft')) return 'Strategy: Start with curated seller onboarding (invite-only beta). Lower commission (12% vs Etsy 20%). Focus on seller tools and analytics as differentiator.';
+        if (g.includes('fintech') || g.includes('lending')) return 'Strategy: Partner with existing financial institutions for licensing. Start with one market (e.g., Kenya). Mobile-first, USSD fallback. AI-driven credit scoring.';
+        if (g.includes('food') || g.includes('delivery')) return 'Strategy: Launch in one city with 20-30 restaurant partners. Flat monthly fee vs. per-order commission. Build driver network part-time initially.';
+        return 'Strategy: MVP-first approach. Focus on core value prop, validate with early adopters, iterate based on feedback. Avoid over-engineering.';
+    }
+}
+
+
+// ============================================
+// STEP 2: TASK PLANNER
+// Reasoning ke results se concrete task plan banao
+// Dependencies, priorities, aur estimated time ke saath
+// ============================================
+
+class TaskPlanner {
+    constructor() {
+        this.tasks = [];
+        this.taskIdCounter = 0;
+    }
+
+    // Reasoning chain se tasks derive karo
+    generatePlan(goal, reasoningChain) {
+        this.tasks = [];
+        this.taskIdCounter = 0;
+        const g = goal.toLowerCase();
+
+        // Har domain ke liye specific task templates
+        const taskTemplates = this.getTaskTemplates(g);
+
+        // Tasks create karo with dependencies
+        taskTemplates.forEach((t, idx) => {
+            this.tasks.push({
+                id: ++this.taskIdCounter,
+                name: t.name,
+                description: t.description,
+                category: t.category,
+                priority: t.priority,
+                estimatedMin: t.estimatedMin,
+                dependencies: t.dependencies || [],
+                status: 'pending', // pending, active, done, failed
+                result: null,
+                startedAt: null,
+                completedAt: null
+            });
+        });
+
+        return this.tasks;
+    }
+
+    getTaskTemplates(g) {
+        // Universal business tasks — har goal ke liye relevant
+        const tasks = [
+            {
+                name: 'Market Research & Competitive Analysis',
+                description: 'Analyze top 5 competitors, pricing models, feature gaps, and market positioning.',
+                category: 'research',
+                priority: 'critical',
+                estimatedMin: 2.5,
+                dependencies: []
+            },
+            {
+                name: 'User Persona Development',
+                description: 'Define 3 target user personas with demographics, pain points, and buying behavior.',
+                category: 'research',
+                priority: 'high',
+                estimatedMin: 1.8,
+                dependencies: [1]
+            },
+            {
+                name: 'Feature Prioritization (MoSCoW)',
+                description: 'Categorize features into Must-have, Should-have, Could-have, Won\'t-have for MVP.',
+                category: 'planning',
+                priority: 'critical',
+                estimatedMin: 2.0,
+                dependencies: [1, 2]
+            },
+            {
+                name: 'Technical Architecture Design',
+                description: 'Design system architecture, tech stack selection, database schema, and API structure.',
+                category: 'engineering',
+                priority: 'critical',
+                estimatedMin: 3.0,
+                dependencies: [3]
+            },
+            {
+                name: 'Business Model & Pricing Strategy',
+                description: 'Define revenue model, pricing tiers, unit economics, and break-even analysis.',
+                category: 'strategy',
+                priority: 'high',
+                estimatedMin: 2.2,
+                dependencies: [1]
+            },
+            {
+                name: 'MVP Scope Definition',
+                description: 'Finalize MVP feature set, user stories, acceptance criteria, and release definition.',
+                category: 'planning',
+                priority: 'critical',
+                estimatedMin: 1.5,
+                dependencies: [3, 5]
+            },
+            {
+                name: 'Brand Identity & Positioning',
+                description: 'Create brand name, tagline, visual identity direction, and positioning statement.',
+                category: 'design',
+                priority: 'medium',
+                estimatedMin: 1.8,
+                dependencies: [2, 5]
+            },
+            {
+                name: 'Go-to-Market Strategy',
+                description: 'Define launch channels, acquisition funnel, content strategy, and partnership plan.',
+                category: 'strategy',
+                priority: 'high',
+                estimatedMin: 2.5,
+                dependencies: [5, 6]
+            },
+            {
+                name: 'Financial Projections',
+                description: 'Build 12-month P&L projection, cash flow model, and funding requirements.',
+                category: 'finance',
+                priority: 'high',
+                estimatedMin: 2.0,
+                dependencies: [5, 6]
+            },
+            {
+                name: 'Development Roadmap Creation',
+                description: 'Create sprint plan, milestone timeline, and resource allocation for 6-month build.',
+                category: 'planning',
+                priority: 'high',
+                estimatedMin: 1.5,
+                dependencies: [4, 6, 9]
+            },
+            {
+                name: 'Risk Mitigation Plan',
+                description: 'Document top 10 risks with probability, impact, and mitigation strategies.',
+                category: 'planning',
+                priority: 'medium',
+                estimatedMin: 1.2,
+                dependencies: [3, 9]
+            },
+            {
+                name: 'Executive Summary Generation',
+                description: 'Compile all findings into a comprehensive executive summary with recommendations.',
+                category: 'delivery',
+                priority: 'critical',
+                estimatedMin: 1.5,
+                dependencies: [8, 9, 10, 11]
+            }
+        ];
+
+        // Domain-specific adjustments
+        if (g.includes('fintech') || g.includes('lending')) {
+            tasks.splice(5, 0, {
+                name: 'Regulatory Compliance Assessment',
+                description: 'Identify required licenses, compliance frameworks (KYC/AML), and legal review needs.',
+                category: 'legal',
+                priority: 'critical',
+                estimatedMin: 2.8,
+                dependencies: [3]
+            });
+            // Adjust dependencies after insert
+            for (let i = 6; i < tasks.length; i++) {
+                tasks[i].dependencies = tasks[i].dependencies.map(d => d >= 6 ? d + 1 : d);
+            }
+        }
+
+        if (g.includes('food') || g.includes('delivery')) {
+            tasks.splice(6, 0, {
+                name: 'Logistics & Operations Model',
+                description: 'Design delivery routing algorithm, driver onboarding process, and SLA framework.',
+                category: 'operations',
+                priority: 'critical',
+                estimatedMin: 2.5,
+                dependencies: [4]
+            });
+            for (let i = 7; i < tasks.length; i++) {
+                tasks[i].dependencies = tasks[i].dependencies.map(d => d >= 7 ? d + 1 : d);
+            }
+        }
+
+        return tasks;
+    }
+}
+
+
+// ============================================
+// STEP 3: EXECUTION ENGINE
+// Task plan ko step-by-step execute karta hai
+// Dependencies check karta hai, logs generate karta hai
+// ============================================
+
+class ExecutionEngine {
+    constructor(planner) {
+        this.planner = planner;
+        this.running = false;
+        this.aborted = false;
+    }
+
+    // Plan ko execute karo — dependency order mein
+    async execute() {
+        this.running = true;
+        this.aborted = false;
+        const tasks = this.planner.tasks;
+        let completedIds = new Set();
+
+        while (!this.aborted) {
+            // Find next runnable task (dependencies met + pending)
+            const next = tasks.find(t =>
+                t.status === 'pending' &&
+                t.dependencies.every(depId => completedIds.has(depId))
+            );
+
+            if (!next) {
+                // Agar sab done hain ya koi aur nahi chal sakta
+                const allDone = tasks.every(t => t.status === 'done' || t.status === 'failed');
+                if (allDone) break;
+
+                // Koi pending hai but dependencies nahi mili — check stuck
+                const pending = tasks.filter(t => t.status === 'pending');
+                if (pending.length > 0) {
+                    // Force-sabse pehla pending task utha lo
+                    const forced = pending[0];
+                    forced.status = 'failed';
+                    forced.result = 'Unresolvable dependency — skipped';
+                    addLog('error', `[EXEC] Task #${forced.id} "${forced.name}" SKIPPED — unresolvable dependency`);
+                    renderPlan();
+                    continue;
+                }
+                break;
+            }
+
+            // Task execute karo
+            await this.executeTask(next);
+            if (next.status === 'done') {
+                completedIds.add(next.id);
+            }
+        }
+
+        this.running = false;
+
+        if (!this.aborted) {
+            addLog('exec', `[EXEC] === All tasks completed. Plan execution finished. ===`);
+            updateStatus('Complete', 'var(--execute)');
+            showToast('All tasks executed successfully!', 'var(--execute)');
+        }
+    }
+
+    // Single task execute karo with simulated work
+    async executeTask(task) {
+        task.status = 'active';
+        task.startedAt = Date.now();
+        renderPlan();
+        updateProgress();
+        addLog('plan', `[EXEC] Starting Task #${task.id}: "${task.name}"`);
+        updateStatus(`Executing #${task.id}`, 'var(--plan)');
+
+        // Simulate execution — task ke estimated time pe based
+        const execTime = task.estimatedMin * 1000; // scaled down for demo
+
+        // Execution ke andar sub-steps bhi log karo
+        const subSteps = this.getSubSteps(task);
+        const stepDelay = execTime / (subSteps.length + 1);
+
+        for (let i = 0; i < subSteps.length; i++) {
+            if (this.aborted) return;
+            await delay(stepDelay);
+            addLog('exec', `[EXEC] Task #${task.id} — ${subSteps[i]}`);
+        }
+
+        // 85% chance success, 15% chance retry-then-success
+        if (Math.random() < 0.15) {
+            addLog('warn', `[EXEC] Task #${task.id} encountered an issue — retrying...`);
+            await delay(800);
+            addLog('exec', `[EXEC] Task #${task.id} retry successful — continuing`);
+        }
+
+        await delay(stepDelay);
+
+        task.status = 'done';
+        task.completedAt = Date.now();
+        task.result = this.generateResult(task);
+        renderPlan();
+        updateProgress();
+        addLog('exec', `[EXEC] Task #${task.id} COMPLETED: "${task.name}" — ${task.result}`);
+    }
+
+    // Har task ke liye sub-steps
+    getSubSteps(task) {
+        const cat = task.category;
+        const subStepsMap = {
+            research: ['Gathering data sources...', 'Analyzing findings...', 'Synthesizing insights...'],
+            planning: ['Reviewing requirements...', 'Creating framework...', 'Validating with constraints...'],
+            engineering: ['Setting up environment...', 'Implementing core logic...', 'Running validation tests...'],
+            strategy: ['Evaluating options...', 'Modeling scenarios...', 'Selecting optimal approach...'],
+            design: ['Exploring directions...', 'Creating iterations...', 'Finalizing selection...'],
+            finance: ['Collecting financial data...', 'Building projections model...', 'Stress-testing assumptions...'],
+            legal: ['Reviewing regulatory framework...', 'Identifying compliance gaps...', 'Documenting requirements...'],
+            operations: ['Mapping process flows...', 'Identifying bottlenecks...', 'Designing optimization strategy...'],
+            delivery: ['Compiling findings...', 'Formatting deliverable...', 'Quality review...']
+        };
+        return subStepsMap[cat] || ['Processing...', 'Analyzing...', 'Completing...'];
+    }
+
+    // Task result generate karo
+    generateResult(task) {
+        const results = {
+            research: 'Analysis complete — 5 competitors mapped, 3 market gaps identified.',
+            planning: 'Plan documented — 14 action items with clear ownership and deadlines.',
+            engineering: 'Architecture finalized — tech stack selected, 12 API endpoints defined.',
+            strategy: 'Strategy defined — go-to-market plan with 3 acquisition channels.',
+            design: 'Brand direction established — name, visual system, and tone of voice defined.',
+            finance: 'Projections complete — break-even at month 14, $240K runway needed.',
+            legal: 'Compliance mapped — 4 licenses required, timeline: 6-10 weeks.',
+            operations: 'Operations model ready — routing algorithm designed, SLA targets set.',
+            delivery: 'Executive summary delivered — 12-page report with recommendations.'
+        };
+        return results[task.category] || 'Task completed successfully.';
+    }
+
+    abort() {
+        this.aborted = true;
+        this.running = false;
+    }
+}
+
+
+// ============================================
+// STEP 4: GLOBAL INSTANCES
+// Engine, Planner, aur Executor banao
+// ============================================
+
+const reasoningEngine = new ReasoningEngine();
+const taskPlanner = new TaskPlanner();
+const executionEngine = new ExecutionEngine(runnerPlanner());
+
+// Planner ko engine se link karo
+function runnerPlanner() { return taskPlanner; }
+
+let currentGoal = '';
+let agentState = 'idle'; // idle, reasoning, planning, executing, complete
+
+
+// ============================================
+// STEP 5: MAIN AGENT FLOW
+// Goal input → Reason → Plan → Execute
+// ============================================
+
+async function runAgent() {
+    const goal = document.getElementById('goalInput').value.trim();
+    if (!goal) {
+        showToast('Please enter a business goal.', 'var(--error)');
+        document.getElementById('goalInput').focus();
+        return;
+    }
+    if (agentState !== 'idle') {
+        showToast('Agent is already running. Reset first.', 'var(--warn)');
+        return;
+    }
+
+    currentGoal = goal;
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+
+    // --- PHASE 1: REASONING ---
+    agentState = 'reasoning';
+    updateStatus('Reasoning', 'var(--reason)');
+    updateAgentState(agentState);
+    addLog('reason', `[AGENT] === Starting Multi-Step Reasoning for: "${goal}" ===`);
+    showToast('Phase 1: Multi-Step Reasoning started', 'var(--reason)');
+
+    clearReasoning();
+    await reasoningEngine.reason(goal);
+
+    addLog('reason', `[AGENT] Reasoning complete — ${reasoningEngine.chain.length} steps analyzed`);
+    showToast('Reasoning complete. Moving to planning...', 'var(--reason)');
+    await delay(500);
+
+    // --- PHASE 2: PLANNING ---
+    agentState = 'planning';
+    updateStatus('Planning', 'var(--plan)');
+    updateAgentState(agentState);
+    addLog('plan', `[AGENT] === Generating Task Plan ===`);
+
+    const tasks = taskPlanner.generatePlan(goal, reasoningEngine.chain);
+    renderPlan();
+    updateProgress();
+
+    addLog('plan', `[AGENT] Plan generated — ${tasks.length} tasks with dependencies mapped`);
+    showToast(`Plan: ${tasks.length} tasks generated`, 'var(--plan)');
+    await delay(800);
+
+    // --- PHASE 3: EXECUTION ---
+    agentState = 'executing';
+    updateStatus('Executing', 'var(--execute)');
+    updateAgentState(agentState);
+    addLog('exec', `[AGENT] === Beginning Plan Execution ===`);
+    showToast('Phase 3: Execution started', 'var(--execute)');
+
+    await executionEngine.execute();
+
+    btn.disabled = false;
+    if (!executionEngine.aborted) {
+        agentState = 'complete';
+        updateAgentState(agentState);
+    }
+}
+
+
+// ============================================
+// STEP 6: UI RENDERING FUNCTIONS
+// ============================================
+
+// Reasoning chain nodes render karo
+function renderReasoningNode(step, index) {
+    const container = document.getElementById('reasoningChain');
+    // Placeholder hatao
+    if (container.querySelector('div[style*="text-align:center"]')) {
+        container.innerHTML = '';
+    }
+
+    const phaseIcons = {
+        analyze: 'fa-magnifying-glass-chart',
+        context: 'fa-globe',
+        risk: 'fa-triangle-exclamation',
+        resource: 'fa-calculator',
+        strategy: 'fa-chess-knight',
+        derive: 'fa-sitemap'
+    };
+    const phaseColors = {
+        analyze: '#f0b429',
+        context: '#3b9eff',
+        risk: '#ff4d6a',
+        resource: '#a78bfa',
+        strategy: '#00e5a0',
+        derive: '#06b6d4'
+    };
+
+    // Connector line (pehle node ke baad)
+    if (index > 0) {
+        const connector = document.createElement('div');
+        connector.className = 'reason-connector';
+        container.appendChild(connector);
+    }
+
+    const node = document.createElement('div');
+    node.className = 'reason-node active-reason';
+    node.style.animationDelay = `${index * 0.1}s`;
+
+    // Pehle nodes se active class hatao
+    setTimeout(() => {
+        const nodes = container.querySelectorAll('.reason-node');
+        nodes.forEach((n, i) => {
+            if (i < nodes.length - 1) n.classList.remove('active-reason');
+        });
+    }, 100);
+
+    const color = phaseColors[step.phase] || '#f0b429';
+    const icon = phaseIcons[step.phase] || 'fa-lightbulb';
+
+    node.innerHTML = `
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+            <div style="width:36px; height:36px; border-radius:10px; background:${color}18; color:${color}; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:14px;">
+                <i class="fas ${icon}"></i>
+            </div>
+            <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                    <span style="font-size:11px; padding:2px 8px; border-radius:6px; background:${color}18; color:${color}; font-weight:600; text-transform:uppercase;">Step ${index + 1}</span>
+                    <span style="font-weight:700; font-size:14px;">${step.title}</span>
+                    <span style="margin-left:auto; font-size:11px; color:${color}; font-weight:600;">${step.confidence}% conf.</span>
+                </div>
+                <p style="font-size:12px; color:var(--muted); line-height:1.6; margin-bottom:8px;">${step.thought}</p>
+                <div style="padding:8px 12px; background:rgba(0,0,0,0.3); border-radius:8px; font-size:12px; line-height:1.6; border-left:3px solid ${color};">
+                    <span style="color:${color}; font-weight:600;">Insight:</span> ${step.insight}
+                </div>
+            </div>
+        </div>
+    `;
+    container.appendChild(node);
+    container.scrollTop = container.scrollHeight;
+}
+
+// Task plan render karo
+function renderPlan() {
+    const container = document.getElementById('taskPlan');
+    const tasks = taskPlanner.tasks;
+
+    if (tasks.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:40px 20px; color:var(--muted); font-size:13px;">
+                <i class="fas fa-clipboard-list" style="font-size:28px; margin-bottom:10px; display:block; opacity:0.25;"></i>
+                Plan will appear after reasoning completes
+            </div>`;
+        return;
+    }
+
+    const categoryColors = {
+        research: '#f0b429',
+        planning: '#3b9eff',
+        engineering: '#06b6d4',
+        strategy: '#00e5a0',
+        design: '#a78bfa',
+        finance: '#f59e0b',
+        legal: '#ff4d6a',
+        operations: '#f97316',
+        delivery: '#00e5a0'
+    };
+
+    const statusIcons = {
+        pending: 'fa-clock',
+        active: 'fa-spinner fa-spin',
+        done: 'fa-check',
+        failed: 'fa-xmark'
+    };
+
+    container.innerHTML = tasks.map((t, idx) => {
+        const color = categoryColors[t.category] || '#5a6f94';
+        const stepClass = t.status === 'active' ? 'step-active' : t.status === 'done' ? 'step-done' : t.status === 'failed' ? 'step-failed' : '';
+        const statusColor = t.status === 'done' ? 'var(--execute)' : t.status === 'active' ? 'var(--plan)' : t.status === 'failed' ? 'var(--error)' : 'var(--muted)';
+
+        return `
+            <div class="plan-step ${stepClass}" style="animation-delay:${idx * 0.05}s;">
+                <div class="step-number">${t.status === 'done' ? '<i class="fas fa-check" style="font-size:12px;"></i>' : t.status === 'failed' ? '<i class="fas fa-xmark" style="font-size:12px;"></i>' : t.id}</div>
+                <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                        <span style="font-weight:600; font-size:13px;">${t.name}</span>
+                        <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:${color}18; color:${color}; font-weight:600; text-transform:uppercase;">${t.category}</span>
+                        <span style="font-size:9px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.05); color:var(--muted); font-weight:600; text-transform:uppercase;">${t.priority}</span>
+                    </div>
+                    <p style="font-size:11px; color:var(--muted); line-height:1.5; margin-bottom:4px;">${t.description}</p>
+                    <div style="display:flex; align-items:center; gap:12px; font-size:10px;">
+                        <span style="color:${statusColor}; font-weight:600; text-transform:uppercase;">
+                            <i class="fas ${statusIcons[t.status]}" style="margin-right:3px;"></i>${t.status}
+                        </span>
+                        <span style="color:var(--muted);"><i class="fas fa-clock" style="margin-right:3px;"></i>${t.estimatedMin}min</span>
+                        ${t.dependencies.length > 0 ? `<span style="color:var(--muted);"><i class="fas fa-link" style="margin-right:3px;"></i>Depends: #${t.dependencies.join(', #')}</span>` : ''}
+                        ${t.result ? `<span style="color:var(--execute); font-size:10px;"><i class="fas fa-circle-check" style="margin-right:3px;"></i>${t.result.substring(0, 50)}...</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Progress ring update karo
+function updateProgress() {
+    const tasks = taskPlanner.tasks;
+    if (tasks.length === 0) return;
+
+    const done = tasks.filter(t => t.status === 'done').length;
+    const active = tasks.filter(t => t.status === 'active').length;
+    const pending = tasks.filter(t => t.status === 'pending').length;
+    const total = tasks.length;
+    const pct = Math.round((done / total) * 100);
+
+    // Ring update
+    const ring = document.getElementById('progressRing');
+    const circumference = 364.42;
+    const offset = circumference - (pct / 100) * circumference;
+    ring.style.strokeDashoffset = offset;
+
+    document.getElementById('progressPct').textContent = pct + '%';
+    document.getElementById('doneCount').textContent = done;
+    document.getElementById('activeCount').textContent = active;
+    document.getElementById('pendingCount').textContent = pending;
+
+    // Stats bhi update karo
+    renderStats();
+}
+
+// Stats bar render karo
+function renderStats() {
+    const bar = document.getElementById('statsBar');
+    const tasks = taskPlanner.tasks;
+    const done = tasks.filter(t => t.status === 'done').length;
+    const totalMin = tasks.reduce((s, t) => s + t.estimatedMin, 0);
+    const doneMin = tasks.filter(t => t.status === 'done').reduce((s, t) => s + t.estimatedMin, 0);
+    const reasonSteps = reasoningEngine.chain.length;
+
+    const stats = [
+        { label: 'Agent State', value: agentState.toUpperCase(), icon: 'fa-robot', color: agentState === 'executing' ? 'var(--execute)' : agentState === 'reasoning' ? 'var(--reason)' : agentState === 'planning' ? 'var(--plan)' : 'var(--muted)' },
+        { label: 'Reasoning Steps', value: reasonSteps, icon: 'fa-brain', color: 'var(--reason)' },
+        { label: 'Planned Tasks', value: tasks.length, icon: 'fa-list-check', color: 'var(--plan)' },
+        { label: 'Tasks Done', value: `${done}/${tasks.length}`, icon: 'fa-circle-check', color: 'var(--execute)' },
+        { label: 'Time Est.', value: `${doneMin.toFixed(1)}/${totalMin.toFixed(1)}min`, icon: 'fa-stopwatch', color: '#a78bfa' }
+    ];
+
+    bar.innerHTML = stats.map(s => `
+        <div class="card" style="padding:14px 16px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                <i class="fas ${s.icon}" style="color:${s.color}; font-size:12px;"></i>
+                <span style="font-size:10px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">${s.label}</span>
+            </div>
+            <div style="font-size:20px; font-weight:800; letter-spacing:-1px; color:${s.color};">${s.value}</div>
+        </div>
+    `).join('');
+}
+
+// ============================================
+// STEP 7: HELPER FUNCTIONS
+// ============================================
+
+function delay(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+function addLog(type, message) {
+    const container = document.getElementById('execLogs');
+    const typeLabels = { reason: 'THINK', plan: 'PLAN', exec: 'EXEC', error: 'ERROR', warn: 'WARN', info: 'SYS' };
+    const typeColors = { reason: '#f0b429', plan: '#3b9eff', exec: '#00e5a0', error: '#ff4d6a', warn: '#f59e0b', info: '#5a6f94' };
+
+    const line = document.createElement('div');
+    line.className = `log-line log-${type}`;
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    line.innerHTML = `<span style="color:var(--muted); font-size:10px;">${time}</span> <span style="color:${typeColors[type]}; font-weight:600;">[${typeLabels[type]}]</span> ${message}`;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+}
+
+function updateStatus(text, color) {
+    const el = document.getElementById('agentStatus');
+    el.style.background = color + '18';
+    el.style.color = color;
+    el.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:${color};${text === 'Executing' || text === 'Reasoning' ? 'animation:spin 1s linear infinite;' : ''}"></span> ${text}`;
+}
+
+function updateAgentState(state) {
+    agentState = state;
+    renderStats();
+}
+
+function setGoal(goal) {
+    document.getElementById('goalInput').value = goal;
+    document.getElementById('goalInput').focus();
+}
+
+function clearReasoning() {
+    document.getElementById('reasoningChain').innerHTML = '';
+}
+
+function resetAgent() {
+    executionEngine.abort();
+    reasoningEngine.chain = [];
+    taskPlanner.tasks = [];
+    agentState = 'idle';
+    currentGoal = '';
+
+    document.getElementById('goalInput').value = '';
+    document.getElementById('runBtn').disabled = false;
+
+    // Reset ring
+    document.getElementById('progressRing').style.strokeDashoffset = '364.42';
+    document.getElementById('progressPct').textContent = '0%';
+    document.getElementById('doneCount').textContent = '0';
+    document.getElementById('activeCount').textContent = '0';
+    document.getElementById('pendingCount').textContent = '0';
+
+    clearReasoning();
+    document.getElementById('reasoningChain').innerHTML = `
+        <div style="text-align:center; padding:40px 20px; color:var(--muted); font-size:13px;">
+            <i class="fas fa-lightbulb" style="font-size:28px; margin-bottom:10px; display:block; opacity:0.25;"></i>
+            Enter a business goal to start reasoning
+        </div>`;
+    document.getElementById('taskPlan').innerHTML = `
+        <div style="text-align:center; padding:40px 20px; color:var(--muted); font-size:13px;">
+            <i class="fas fa-clipboard-list" style="font-size:28px; margin-bottom:10px; display:block; opacity:0.25;"></i>
+            Plan will appear after reasoning completes
+        </div>`;
+    document.getElementById('execLogs').innerHTML = `
+        <div class="log-line log-info">
+            <span style="color:var(--muted);">[SYS]</span> Autonomous Business Agent reset. Awaiting goal.
+        </div>`;
+
+    updateStatus('Ready', 'var(--accent)');
+    renderStats();
+    showToast('Agent reset complete.', 'var(--accent)');
+}
+
+function showToast(msg, color) {
+    const box = document.getElementById('toastBox');
+    const toast = document.createElement('div');
+    toast.className = 'toast-item';
+    toast.innerHTML = `<div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>${msg}`;
+    box.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('out');
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+}
+
+// ============================================
+// STEP 8: CANVAS BACKGROUND PARTICLES
+// Subtle animated particles for visual depth
+// ============================================
+
+const bgCanvas = document.createElement('canvas');
+bgCanvas.style.cssText = 'position:fixed;inset:0;z-index:0;pointer-events:none;';
+document.body.prepend(bgCanvas);
+const bgCtx = bgCanvas.getContext('2d');
+let particles = [];
+
+function initParticles() {
+    bgCanvas.width = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+    particles = [];
+    const count = Math.floor((bgCanvas.width * bgCanvas.height) / 18000);
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x: Math.random() * bgCanvas.width,
+            y: Math.random() * bgCanvas.height,
+            r: 0.5 + Math.random() * 1.2,
+            dx: (Math.random() - 0.5) * 0.3,
+            dy: (Math.random() - 0.5) * 0.2,
+            alpha: 0.1 + Math.random() * 0.25
+        });
+    }
+}
+
+function drawParticles() {
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+    particles.forEach(p => {
+        p.x += p.dx;
+        p.y += p.dy;
+        if (p.x < 0) p.x = bgCanvas.width;
+        if (p.x > bgCanvas.width) p.x = 0;
+        if (p.y < 0) p.y = bgCanvas.height;
+        if (p.y > bgCanvas.height) p.y = 0;
+
+        bgCtx.beginPath();
+        bgCtx.arc(p.x, p.y, Math.max(0.3, p.r), 0, Math.PI * 2);
+        bgCtx.fillStyle = `rgba(0,229,160,${p.alpha})`;
+        bgCtx.fill();
+    });
+
+    // Nearby particles connect
+    for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[i].x - particles[j].x;
+            const dy = particles[i].y - particles[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 100) {
+                bgCtx.beginPath();
+                bgCtx.moveTo(particles[i].x, particles[i].y);
+                bgCtx.lineTo(particles[j].x, particles[j].y);
+                bgCtx.strokeStyle = `rgba(0,229,160,${0.04 * (1 - dist / 100)})`;
+                bgCtx.lineWidth = 0.5;
+                bgCtx.stroke();
+            }
+        }
+    }
+
+    requestAnimationFrame(drawParticles);
+}
+
+window.addEventListener('load', () => {
+    initParticles();
+    drawParticles();
+    renderStats();
+});
+window.addEventListener('resize', initParticles);
+
+// Enter key se run
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.activeElement.id === 'goalInput') {
+        runAgent();
+    }
+});
+</script>
+</body>
+</html>
